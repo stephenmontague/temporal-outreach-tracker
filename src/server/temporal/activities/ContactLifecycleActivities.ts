@@ -316,23 +316,40 @@ export async function sendReminderNotificationActivity(
           contactId,
           contactName,
           outreachId,
-          followUpId,
+          followUpId: providedFollowUpId,
           reminderNumber,
           totalReminders,
      } = params;
 
      const reminderInfo = ` (${reminderNumber}/${totalReminders})`;
 
-     // Mark the follow-up as reminder sent
-     await followUpRepository.update(followUpId, {
-          reminderSent: true,
-     });
+     // Find the follow-up ID if not provided
+     let followUpId = providedFollowUpId;
+     if (!followUpId) {
+          // Look up follow-ups for this outreach and find the one matching the reminder number
+          const followUps = await followUpRepository.findByOutreachId(outreachId);
+          const incompleteFollowUps = followUps
+               .filter((f) => !f.completed && !f.reminderSent)
+               .sort((a, b) => a.scheduledDate.getTime() - b.scheduledDate.getTime());
+
+          if (incompleteFollowUps.length > 0) {
+               // Get the first incomplete follow-up (earliest scheduled)
+               followUpId = incompleteFollowUps[0].id;
+          }
+     }
+
+     // Mark the follow-up as reminder sent (only if we have a valid ID)
+     if (followUpId) {
+          await followUpRepository.update(followUpId, {
+               reminderSent: true,
+          });
+     }
 
      // Log the reminder
      console.log(`[REMINDER${reminderInfo}] Follow up with ${contactName}`);
      console.log(`  Contact ID: ${contactId}`);
      console.log(`  Outreach ID: ${outreachId}`);
-     console.log(`  Follow-up ID: ${followUpId}`);
+     console.log(`  Follow-up ID: ${followUpId || "(not found)"}`);
 
      // macOS native notification
      sendMacOSNotification(contactName, reminderInfo);
