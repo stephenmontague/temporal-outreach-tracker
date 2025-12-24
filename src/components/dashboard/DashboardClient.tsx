@@ -97,6 +97,7 @@ export function DashboardClient({
                     stage1Opportunities: 0,
                     conversionRates: {
                          outreachToMeeting: 0,
+                         outreachToAEMeeting: 0,
                          meetingToAEMeeting: 0,
                          aeMeetingToStage1: 0,
                          overallOutreachToStage1: 0,
@@ -125,6 +126,10 @@ export function DashboardClient({
                     outreachToMeeting: calculateChange(
                          selectedPeriod.conversionRates.outreachToMeeting,
                          comparisonPeriod.conversionRates.outreachToMeeting
+                    ),
+                    outreachToAEMeeting: calculateChange(
+                         selectedPeriod.conversionRates.outreachToAEMeeting,
+                         comparisonPeriod.conversionRates.outreachToAEMeeting
                     ),
                     meetingToAEMeeting: calculateChange(
                          selectedPeriod.conversionRates.meetingToAEMeeting,
@@ -487,6 +492,7 @@ export function DashboardClient({
                          meetings={selectedPeriod.meetings}
                          aeMeetings={selectedPeriod.aeMeetings}
                          stage1={selectedPeriod.stage1Opportunities}
+                         uniqueContacts={selectedPeriod.uniqueContacts}
                     />
                     <UpcomingFollowUps
                          followUpsWithContacts={followUpsWithContacts}

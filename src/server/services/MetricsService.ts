@@ -7,11 +7,14 @@ import {
 import {
      ContactEventType,
      StageChangedMetadata,
+     OutreachCreatedMetadata,
 } from "@/models/ContactEvent";
 import { FunnelStage } from "@/models/FunnelStage";
-import { MeetingType } from "@/models/Meeting";
+import { MeetingType, MeetingOutcome } from "@/models/Meeting";
 import { OpportunityStage } from "@/models/Opportunity";
+import { OutreachMethod } from "@/models/OutreachMethod";
 import { ContactEventRepository } from "@/server/repositories/ContactEventRepository";
+import { ContactRepository } from "@/server/repositories/ContactRepository";
 import { MeetingRepository } from "@/server/repositories/MeetingRepository";
 import { OpportunityRepository } from "@/server/repositories/OpportunityRepository";
 import { OutreachRepository } from "@/server/repositories/OutreachRepository";
@@ -25,6 +28,7 @@ import {
 
 export interface ConversionRates {
      outreachToMeeting: number;
+     outreachToAEMeeting: number; // Direct path: Outreach → AE Meeting
      meetingToAEMeeting: number;
      aeMeetingToStage1: number;
      overallOutreachToStage1: number;
@@ -59,6 +63,7 @@ export interface QuarterlyMetrics {
      meetings: number;
      aeMeetings: number;
      stage1Opportunities: number;
+     uniqueContacts: number;
      conversionRates: ConversionRates;
      throughput: ThroughputMetrics;
      velocity: VelocityMetrics;
@@ -91,6 +96,7 @@ export interface PeriodMetrics {
      meetings: number;
      aeMeetings: number;
      stage1Opportunities: number;
+     uniqueContacts: number;
      conversionRates: ConversionRates;
      velocity: VelocityMetrics;
 }
@@ -113,17 +119,69 @@ export interface MultiPeriodMetrics {
      comparisonIndex: number | null;
 }
 
+// New interfaces for enhanced metrics
+
+export interface MethodEffectiveness {
+     method: OutreachMethod;
+     count: number;
+     responseCount: number;
+     responseRate: number;
+     meetingCount: number;
+     meetingConversionRate: number;
+}
+
+export interface OutreachEfficiencyMetrics {
+     avgTouchesToMeeting: number;
+     avgTouchesToAEMeeting: number;
+     avgTouchesToStage1: number;
+     responseRate: number;
+     methodEffectiveness: MethodEffectiveness[];
+}
+
+export interface MeetingOutcomes {
+     positive: number;
+     negative: number;
+     rescheduled: number;
+     noShow: number;
+     pending: number;
+     total: number;
+}
+
+export interface MeetingPathMetrics {
+     soloMeetingsCount: number;
+     directToAECount: number;
+     soloToAECount: number;
+     soloToAEConversionRate: number;
+     totalAEMeetings: number;
+     outcomes: MeetingOutcomes;
+}
+
+export interface FunnelPathData {
+     count: number;
+     stage1Count: number;
+     conversionRate: number;
+     avgDaysToStage1: number;
+     avgTouches: number;
+}
+
+export interface FunnelPathMetrics {
+     standardPath: FunnelPathData; // Outreach → Solo → AE → Stage 1
+     directToAEPath: FunnelPathData; // Outreach → AE → Stage 1 (skipped solo)
+}
+
 export class MetricsService {
      private outreachRepository: OutreachRepository;
      private meetingRepository: MeetingRepository;
      private opportunityRepository: OpportunityRepository;
      private contactEventRepository: ContactEventRepository;
+     private contactRepository: ContactRepository;
 
      constructor() {
           this.outreachRepository = new OutreachRepository();
           this.meetingRepository = new MeetingRepository();
           this.opportunityRepository = new OpportunityRepository();
           this.contactEventRepository = new ContactEventRepository();
+          this.contactRepository = new ContactRepository();
      }
 
      async getConversionRates(userId: string): Promise<ConversionRates> {
@@ -144,6 +202,12 @@ export class MetricsService {
                     ? (meetings.length / outreaches.length) * 100
                     : 0;
 
+          // Outreach → AE Meeting (direct path, for contacts that went straight to AE)
+          const outreachToAEMeeting =
+               outreaches.length > 0
+                    ? (aeMeetings.length / outreaches.length) * 100
+                    : 0;
+
           const meetingToAEMeeting =
                meetings.length > 0
                     ? (aeMeetings.length / meetings.length) * 100
@@ -161,6 +225,7 @@ export class MetricsService {
 
           return {
                outreachToMeeting,
+               outreachToAEMeeting,
                meetingToAEMeeting,
                aeMeetingToStage1,
                overallOutreachToStage1,
@@ -369,10 +434,22 @@ export class MetricsService {
                          FunnelStage.STAGE_1
           );
 
+          // Calculate unique contacts from outreach events
+          const uniqueContactIds = new Set(quarterOutreachEvents.map(e => e.contactId));
+          const uniqueContacts = uniqueContactIds.size;
+
           // Calculate conversion rates for this quarter
           const outreachToMeeting =
                quarterOutreachEvents.length > 0
                     ? (quarterMeetingEvents.length /
+                           quarterOutreachEvents.length) *
+                      100
+                    : 0;
+
+          // Outreach → AE Meeting (direct path)
+          const outreachToAEMeeting =
+               quarterOutreachEvents.length > 0
+                    ? (quarterAEMeetingEvents.length /
                            quarterOutreachEvents.length) *
                       100
                     : 0;
@@ -461,8 +538,10 @@ export class MetricsService {
                meetings: quarterMeetingEvents.length,
                aeMeetings: quarterAEMeetingEvents.length,
                stage1Opportunities: quarterStage1Events.length,
+               uniqueContacts,
                conversionRates: {
                     outreachToMeeting,
+                    outreachToAEMeeting,
                     meetingToAEMeeting,
                     aeMeetingToStage1,
                     overallOutreachToStage1,
@@ -539,6 +618,10 @@ export class MetricsService {
                               currentQuarter.conversionRates.outreachToMeeting,
                               previousQuarter.conversionRates.outreachToMeeting
                          ),
+                         outreachToAEMeeting: calculateChange(
+                              currentQuarter.conversionRates.outreachToAEMeeting,
+                              previousQuarter.conversionRates.outreachToAEMeeting
+                         ),
                          meetingToAEMeeting: calculateChange(
                               currentQuarter.conversionRates.meetingToAEMeeting,
                               previousQuarter.conversionRates.meetingToAEMeeting
@@ -594,6 +677,7 @@ export class MetricsService {
           meetings: number;
           aeMeetings: number;
           stage1Opportunities: number;
+          uniqueContacts: number;
           conversionRates: ConversionRates;
           velocity: VelocityMetrics;
      }> {
@@ -630,10 +714,20 @@ export class MetricsService {
                          FunnelStage.STAGE_1
           );
 
+          // Calculate unique contacts from outreach events
+          const uniqueContactIds = new Set(outreachEvents.map(e => e.contactId));
+          const uniqueContacts = uniqueContactIds.size;
+
           // Calculate conversion rates
           const outreachToMeeting =
                outreachEvents.length > 0
                     ? (meetingEvents.length / outreachEvents.length) * 100
+                    : 0;
+
+          // Outreach → AE Meeting (direct path)
+          const outreachToAEMeeting =
+               outreachEvents.length > 0
+                    ? (aeMeetingEvents.length / outreachEvents.length) * 100
                     : 0;
 
           const meetingToAEMeeting =
@@ -711,8 +805,10 @@ export class MetricsService {
                meetings: meetingEvents.length,
                aeMeetings: aeMeetingEvents.length,
                stage1Opportunities: stage1Events.length,
+               uniqueContacts,
                conversionRates: {
                     outreachToMeeting,
+                    outreachToAEMeeting,
                     meetingToAEMeeting,
                     aeMeetingToStage1,
                     overallOutreachToStage1,
@@ -841,6 +937,425 @@ export class MetricsService {
                periods,
                selectedIndex: 0,
                comparisonIndex: 1,
+          };
+     }
+
+     /**
+      * Get outreach efficiency metrics
+      * - Average touches to meeting, AE meeting, and Stage 1
+      * - Response rate
+      * - Method effectiveness breakdown
+      */
+     async getOutreachEfficiencyMetrics(
+          userId: string
+     ): Promise<OutreachEfficiencyMetrics> {
+          const outreaches = await this.outreachRepository.findByUserId(userId);
+          const contacts = await this.contactRepository.findByUserId(userId);
+
+          // Group outreaches by contact
+          const outreachesByContact = new Map<string, typeof outreaches>();
+          for (const outreach of outreaches) {
+               const existing = outreachesByContact.get(outreach.contactId) || [];
+               existing.push(outreach);
+               outreachesByContact.set(outreach.contactId, existing);
+          }
+
+          // Calculate touches to meeting for contacts that reached MEETING_BOOKED
+          const touchesToMeeting: number[] = [];
+          const touchesToAEMeeting: number[] = [];
+          const touchesToStage1: number[] = [];
+
+          for (const contact of contacts) {
+               const contactOutreaches = outreachesByContact.get(contact.id) || [];
+               if (contactOutreaches.length === 0) continue;
+
+               const stage = contact.currentFunnelStage;
+
+               // Count touches for contacts that reached meeting stage or beyond
+               if (
+                    stage === FunnelStage.MEETING_BOOKED ||
+                    stage === FunnelStage.AE_MEETING ||
+                    stage === FunnelStage.OPPORTUNITY_CREATED ||
+                    stage === FunnelStage.STAGE_1
+               ) {
+                    touchesToMeeting.push(contactOutreaches.length);
+               }
+
+               // Count touches for contacts that reached AE meeting or beyond
+               if (
+                    stage === FunnelStage.AE_MEETING ||
+                    stage === FunnelStage.OPPORTUNITY_CREATED ||
+                    stage === FunnelStage.STAGE_1
+               ) {
+                    touchesToAEMeeting.push(contactOutreaches.length);
+               }
+
+               // Count touches for contacts that reached Stage 1
+               if (stage === FunnelStage.STAGE_1) {
+                    touchesToStage1.push(contactOutreaches.length);
+               }
+          }
+
+          // Calculate averages
+          const avgTouchesToMeeting =
+               touchesToMeeting.length > 0
+                    ? touchesToMeeting.reduce((a, b) => a + b, 0) / touchesToMeeting.length
+                    : 0;
+
+          const avgTouchesToAEMeeting =
+               touchesToAEMeeting.length > 0
+                    ? touchesToAEMeeting.reduce((a, b) => a + b, 0) / touchesToAEMeeting.length
+                    : 0;
+
+          const avgTouchesToStage1 =
+               touchesToStage1.length > 0
+                    ? touchesToStage1.reduce((a, b) => a + b, 0) / touchesToStage1.length
+                    : 0;
+
+          // Calculate response rate
+          const responsesReceived = outreaches.filter((o) => o.responseReceived).length;
+          const responseRate =
+               outreaches.length > 0 ? (responsesReceived / outreaches.length) * 100 : 0;
+
+          // Calculate method effectiveness
+          const methodStats = new Map<
+               OutreachMethod,
+               { count: number; responses: number; meetings: number }
+          >();
+
+          // Initialize all methods
+          for (const method of Object.values(OutreachMethod)) {
+               methodStats.set(method, { count: 0, responses: 0, meetings: 0 });
+          }
+
+          // Count outreaches by method
+          for (const outreach of outreaches) {
+               const stats = methodStats.get(outreach.method)!;
+               stats.count++;
+               if (outreach.responseReceived) {
+                    stats.responses++;
+               }
+          }
+
+          // Count meetings per method (based on contacts that reached meeting stage)
+          for (const contact of contacts) {
+               const contactOutreaches = outreachesByContact.get(contact.id) || [];
+               const stage = contact.currentFunnelStage;
+
+               if (
+                    stage === FunnelStage.MEETING_BOOKED ||
+                    stage === FunnelStage.AE_MEETING ||
+                    stage === FunnelStage.OPPORTUNITY_CREATED ||
+                    stage === FunnelStage.STAGE_1
+               ) {
+                    // Attribute meeting to the first outreach method used
+                    if (contactOutreaches.length > 0) {
+                         const firstMethod = contactOutreaches[0].method;
+                         const stats = methodStats.get(firstMethod)!;
+                         stats.meetings++;
+                    }
+               }
+          }
+
+          const methodEffectiveness: MethodEffectiveness[] = [];
+          for (const [method, stats] of methodStats) {
+               if (stats.count > 0) {
+                    methodEffectiveness.push({
+                         method,
+                         count: stats.count,
+                         responseCount: stats.responses,
+                         responseRate: (stats.responses / stats.count) * 100,
+                         meetingCount: stats.meetings,
+                         meetingConversionRate: (stats.meetings / stats.count) * 100,
+                    });
+               }
+          }
+
+          // Sort by count descending
+          methodEffectiveness.sort((a, b) => b.count - a.count);
+
+          return {
+               avgTouchesToMeeting,
+               avgTouchesToAEMeeting,
+               avgTouchesToStage1,
+               responseRate,
+               methodEffectiveness,
+          };
+     }
+
+     /**
+      * Get meeting path metrics
+      * - Solo meetings count
+      * - Direct to AE count (skipped solo)
+      * - Solo to AE conversion rate
+      * - Meeting outcomes breakdown
+      * 
+      * Uses ContactEvents as source of truth to capture all stage transitions,
+      * regardless of whether a Meeting entity was created.
+      */
+     async getMeetingPathMetrics(userId: string): Promise<MeetingPathMetrics> {
+          // Use ContactEvents as source of truth instead of meetings table
+          const allEvents = await this.contactEventRepository.findByUserIdAndDateRange(
+               userId,
+               new Date(0), // All time
+               new Date()
+          );
+          
+          const meetings = await this.meetingRepository.findByUserId(userId);
+
+          // Get stage change events for MEETING_BOOKED and AE_MEETING
+          const meetingBookedEvents = allEvents.filter(
+               (e) =>
+                    e.eventType === ContactEventType.STAGE_CHANGED &&
+                    (e.metadata as StageChangedMetadata)?.toStage === FunnelStage.MEETING_BOOKED
+          );
+          
+          const aeMeetingEvents = allEvents.filter(
+               (e) =>
+                    e.eventType === ContactEventType.STAGE_CHANGED &&
+                    (e.metadata as StageChangedMetadata)?.toStage === FunnelStage.AE_MEETING
+          );
+
+          // Group by contact to determine paths
+          const contactPaths = new Map<string, { hadSolo: boolean; hadAE: boolean }>();
+          
+          for (const event of meetingBookedEvents) {
+               const path = contactPaths.get(event.contactId) || { hadSolo: false, hadAE: false };
+               path.hadSolo = true;
+               contactPaths.set(event.contactId, path);
+          }
+          
+          for (const event of aeMeetingEvents) {
+               const path = contactPaths.get(event.contactId) || { hadSolo: false, hadAE: false };
+               path.hadAE = true;
+               contactPaths.set(event.contactId, path);
+          }
+
+          let soloMeetingsCount = 0;
+          let directToAECount = 0;
+          let soloToAECount = 0;
+
+          for (const [, path] of contactPaths) {
+               if (path.hadSolo) {
+                    soloMeetingsCount++;
+                    if (path.hadAE) {
+                         soloToAECount++;
+                    }
+               } else if (path.hadAE) {
+                    // Has AE but never had solo = direct to AE
+                    directToAECount++;
+               }
+          }
+
+          const soloToAEConversionRate =
+               soloMeetingsCount > 0
+                    ? (soloToAECount / soloMeetingsCount) * 100
+                    : 0;
+
+          const totalAEMeetings = soloToAECount + directToAECount;
+
+          // Calculate meeting outcomes from meetings table (for meetings that have records)
+          const outcomes: MeetingOutcomes = {
+               positive: 0,
+               negative: 0,
+               rescheduled: 0,
+               noShow: 0,
+               pending: 0,
+               total: meetings.length,
+          };
+
+          for (const meeting of meetings) {
+               switch (meeting.outcome) {
+                    case MeetingOutcome.POSITIVE:
+                         outcomes.positive++;
+                         break;
+                    case MeetingOutcome.NEGATIVE:
+                         outcomes.negative++;
+                         break;
+                    case MeetingOutcome.RESCHEDULED:
+                         outcomes.rescheduled++;
+                         break;
+                    case MeetingOutcome.NO_SHOW:
+                         outcomes.noShow++;
+                         break;
+                    default:
+                         outcomes.pending++;
+               }
+          }
+
+          return {
+               soloMeetingsCount,
+               directToAECount,
+               soloToAECount,
+               soloToAEConversionRate,
+               totalAEMeetings,
+               outcomes,
+          };
+     }
+
+     /**
+      * Get funnel path metrics
+      * - Standard path: Outreach → Solo Meeting → AE Meeting → Stage 1
+      * - Direct-to-AE path: Outreach → AE Meeting → Stage 1 (skipped solo)
+      * 
+      * Uses ContactEvents as source of truth to capture all stage transitions.
+      */
+     async getFunnelPathMetrics(userId: string): Promise<FunnelPathMetrics> {
+          const contacts = await this.contactRepository.findByUserId(userId);
+          const outreaches = await this.outreachRepository.findByUserId(userId);
+          const stage1Opportunities =
+               await this.opportunityRepository.findStage1Opportunities(userId);
+
+          // Use ContactEvents as source of truth for stage transitions
+          const allEvents = await this.contactEventRepository.findByUserIdAndDateRange(
+               userId,
+               new Date(0), // All time
+               new Date()
+          );
+
+          // Get stage change events
+          const meetingBookedEvents = allEvents.filter(
+               (e) =>
+                    e.eventType === ContactEventType.STAGE_CHANGED &&
+                    (e.metadata as StageChangedMetadata)?.toStage === FunnelStage.MEETING_BOOKED
+          );
+          
+          const aeMeetingEvents = allEvents.filter(
+               (e) =>
+                    e.eventType === ContactEventType.STAGE_CHANGED &&
+                    (e.metadata as StageChangedMetadata)?.toStage === FunnelStage.AE_MEETING
+          );
+
+          // Build sets of contacts that reached each stage
+          const contactsWithSoloMeeting = new Set(meetingBookedEvents.map(e => e.contactId));
+          const contactsWithAEMeeting = new Set(aeMeetingEvents.map(e => e.contactId));
+
+          // Group outreaches by contact
+          const outreachesByContact = new Map<string, typeof outreaches>();
+          for (const outreach of outreaches) {
+               const existing = outreachesByContact.get(outreach.contactId) || [];
+               existing.push(outreach);
+               outreachesByContact.set(outreach.contactId, existing);
+          }
+
+          // Map Stage 1 opportunities by contact
+          const stage1ByContact = new Map<string, (typeof stage1Opportunities)[0]>();
+          for (const opp of stage1Opportunities) {
+               stage1ByContact.set(opp.contactId, opp);
+          }
+
+          // Standard path stats
+          const standardPathContacts: {
+               contactId: string;
+               daysToStage1: number | null;
+               touches: number;
+               reachedStage1: boolean;
+          }[] = [];
+
+          // Direct-to-AE path stats
+          const directToAEContacts: {
+               contactId: string;
+               daysToStage1: number | null;
+               touches: number;
+               reachedStage1: boolean;
+          }[] = [];
+
+          for (const contact of contacts) {
+               const contactOutreaches = outreachesByContact.get(contact.id) || [];
+               const stage1Opp = stage1ByContact.get(contact.id);
+
+               const hasSoloMeeting = contactsWithSoloMeeting.has(contact.id);
+               const hasAEMeeting = contactsWithAEMeeting.has(contact.id);
+
+               // Must have AE meeting to be on either path (AE is required for Stage 1)
+               if (!hasAEMeeting) continue;
+
+               const touches = contactOutreaches.length;
+               const reachedStage1 = !!stage1Opp;
+
+               // Calculate days to Stage 1 from first outreach
+               let daysToStage1: number | null = null;
+               if (stage1Opp && stage1Opp.stage1Date && contactOutreaches.length > 0) {
+                    const firstOutreach = contactOutreaches.reduce((earliest, o) =>
+                         toDate(o.dateTime) < toDate(earliest.dateTime) ? o : earliest
+                    );
+                    daysToStage1 = Math.floor(
+                         (toDate(stage1Opp.stage1Date).getTime() -
+                              toDate(firstOutreach.dateTime).getTime()) /
+                              (1000 * 60 * 60 * 24)
+                    );
+               }
+
+               if (hasSoloMeeting) {
+                    // Standard path: had solo meeting before AE
+                    standardPathContacts.push({
+                         contactId: contact.id,
+                         daysToStage1,
+                         touches,
+                         reachedStage1,
+                    });
+               } else {
+                    // Direct-to-AE path: went straight to AE
+                    directToAEContacts.push({
+                         contactId: contact.id,
+                         daysToStage1,
+                         touches,
+                         reachedStage1,
+                    });
+               }
+          }
+
+          // Calculate standard path metrics
+          const standardStage1 = standardPathContacts.filter((c) => c.reachedStage1);
+          const standardDays = standardStage1
+               .filter((c) => c.daysToStage1 !== null)
+               .map((c) => c.daysToStage1!);
+          const standardTouches = standardStage1.map((c) => c.touches);
+
+          const standardPath: FunnelPathData = {
+               count: standardPathContacts.length,
+               stage1Count: standardStage1.length,
+               conversionRate:
+                    standardPathContacts.length > 0
+                         ? (standardStage1.length / standardPathContacts.length) * 100
+                         : 0,
+               avgDaysToStage1:
+                    standardDays.length > 0
+                         ? standardDays.reduce((a, b) => a + b, 0) / standardDays.length
+                         : 0,
+               avgTouches:
+                    standardTouches.length > 0
+                         ? standardTouches.reduce((a, b) => a + b, 0) / standardTouches.length
+                         : 0,
+          };
+
+          // Calculate direct-to-AE path metrics
+          const directStage1 = directToAEContacts.filter((c) => c.reachedStage1);
+          const directDays = directStage1
+               .filter((c) => c.daysToStage1 !== null)
+               .map((c) => c.daysToStage1!);
+          const directTouches = directStage1.map((c) => c.touches);
+
+          const directToAEPath: FunnelPathData = {
+               count: directToAEContacts.length,
+               stage1Count: directStage1.length,
+               conversionRate:
+                    directToAEContacts.length > 0
+                         ? (directStage1.length / directToAEContacts.length) * 100
+                         : 0,
+               avgDaysToStage1:
+                    directDays.length > 0
+                         ? directDays.reduce((a, b) => a + b, 0) / directDays.length
+                         : 0,
+               avgTouches:
+                    directTouches.length > 0
+                         ? directTouches.reduce((a, b) => a + b, 0) / directTouches.length
+                         : 0,
+          };
+
+          return {
+               standardPath,
+               directToAEPath,
           };
      }
 }

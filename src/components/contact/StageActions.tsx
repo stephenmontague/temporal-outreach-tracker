@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -14,6 +14,7 @@ import {
 import { FunnelStage } from '@/models/FunnelStage';
 import { updateContactStage, recordContactResponse } from '@/app/actions/contact-actions';
 import { ResponseOutreachDialog } from './ResponseOutreachDialog';
+import { AddOutreachDialog } from './AddOutreachDialog';
 import { 
   CheckCircle, 
   Calendar, 
@@ -22,7 +23,8 @@ import {
   Trophy,
   XCircle,
   Clock,
-  MessageSquare
+  MessageSquare,
+  Send
 } from 'lucide-react';
 
 interface StageActionsProps {
@@ -80,6 +82,7 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [showResponseDialog, setShowResponseDialog] = useState(false);
+  const [showAddOutreachDialog, setShowAddOutreachDialog] = useState(false);
   const [showResponseForm, setShowResponseForm] = useState(false);
   const [responseSaved, setResponseSaved] = useState(false);
   const [selectedStage, setSelectedStage] = useState<FunnelStage>(currentStage);
@@ -87,6 +90,14 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
   const [occurredAt, setOccurredAt] = useState<string>('');
   const [responseDate, setResponseDate] = useState<string>('');
   const [responseContext, setResponseContext] = useState<string>('');
+  
+  // Track the current outreach ID - this may change when user creates a new outreach
+  const [currentOutreachId, setCurrentOutreachId] = useState<string | undefined>(latestOutreachId);
+  
+  // Update currentOutreachId when latestOutreachId prop changes (page refresh)
+  useEffect(() => {
+    setCurrentOutreachId(latestOutreachId);
+  }, [latestOutreachId]);
 
   const currentConfig = stageConfig[currentStage];
   const isTerminalStage = currentStage === FunnelStage.STAGE_1 || currentStage === FunnelStage.LOST;
@@ -129,7 +140,7 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
   };
 
   const handleResponded = () => {
-    if (!latestOutreachId) return;
+    if (!currentOutreachId) return;
     setError(null);
     setShowResponseForm(true);
     // Set default to current date/time
@@ -142,14 +153,14 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
   };
 
   const handleSaveResponse = () => {
-    if (!latestOutreachId) return;
+    if (!currentOutreachId) return;
     setError(null);
     const responseDateObj = responseDate ? new Date(responseDate) : new Date();
     
     startTransition(async () => {
       const result = await recordContactResponse(
         contactId,
-        latestOutreachId,
+        currentOutreachId,
         responseDateObj,
         responseContext || undefined
       );
@@ -162,6 +173,14 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
         setError(result.error || 'Failed to record response');
       }
     });
+  };
+  
+  // Handle successful outreach creation - reset to show "They Responded" for the new outreach
+  const handleOutreachCreated = (newOutreachId: string) => {
+    setCurrentOutreachId(newOutreachId);
+    setResponseSaved(false);
+    setShowResponseDialog(false);
+    setShowAddOutreachDialog(false);
   };
 
   const handleCancelResponse = () => {
@@ -282,7 +301,7 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
         )}
 
         {/* They Responded Button */}
-        {latestOutreachId && !isTerminalStage && !showResponseForm && !responseSaved && (
+        {currentOutreachId && !isTerminalStage && !showResponseForm && !responseSaved && (
           <div className="space-y-2">
             <p className="text-sm text-muted-foreground">
               Mark contact as responded (stops reminders)
@@ -345,7 +364,7 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
         )}
 
         {/* I Responded Back Button */}
-        {responseSaved && latestOutreachId && (
+        {responseSaved && currentOutreachId && (
           <div className="space-y-2">
             <Button
               onClick={() => setShowResponseDialog(true)}
@@ -358,17 +377,44 @@ export function StageActions({ contactId, currentStage, latestOutreachId }: Stag
             </Button>
           </div>
         )}
+        
+        {/* Send Follow-up Button (unprompted outreach) */}
+        {!isTerminalStage && !showResponseForm && (
+          <div className="space-y-2">
+            <p className="text-sm text-muted-foreground">
+              Send a new follow-up message
+            </p>
+            <Button
+              onClick={() => setShowAddOutreachDialog(true)}
+              disabled={isPending}
+              variant="outline"
+              className="w-full gap-2 border-purple-500 text-purple-600 hover:bg-purple-50 dark:hover:bg-purple-950"
+            >
+              <Send className="h-4 w-4" />
+              Send Follow-up
+            </Button>
+          </div>
+        )}
       </CardContent>
       
       {/* Response Outreach Dialog */}
-      {latestOutreachId && (
+      {currentOutreachId && (
         <ResponseOutreachDialog
           open={showResponseDialog}
           onClose={() => setShowResponseDialog(false)}
+          onSuccess={handleOutreachCreated}
           contactId={contactId}
-          originalOutreachId={latestOutreachId}
+          originalOutreachId={currentOutreachId}
         />
       )}
+      
+      {/* Add Outreach Dialog (unprompted follow-up) */}
+      <AddOutreachDialog
+        open={showAddOutreachDialog}
+        onClose={() => setShowAddOutreachDialog(false)}
+        onSuccess={handleOutreachCreated}
+        contactId={contactId}
+      />
     </Card>
   );
 }

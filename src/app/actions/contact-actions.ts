@@ -538,3 +538,91 @@ export async function getContactWorkflowState(contactId: string) {
           return { success: true, state: null };
      }
 }
+
+/**
+ * Create an unprompted outreach (follow-up without prior response)
+ */
+export async function createUnpromptedOutreach(
+     contactId: string,
+     formData: FormData
+) {
+     try {
+          const userId = getUserId();
+
+          // Parse outreach data
+          const data = {
+               contactId,
+               userId,
+               method: formData.get("method") as string,
+               dateTime: formData.get("dateTime") as string,
+               subject: formData.get("subject") as string | undefined,
+               messagePreview: formData.get("messagePreview") as
+                    | string
+                    | undefined,
+               notes: formData.get("notes") as string | undefined,
+          };
+
+          // Validate outreach data
+          const validated = outreachSchema.parse({
+               contactId,
+               method: data.method,
+               dateTime: data.dateTime,
+               subject: data.subject,
+               messagePreview: data.messagePreview,
+               notes: data.notes,
+               responseReceived: false,
+          });
+
+          const outreachDateTime = new Date(validated.dateTime);
+
+          // Get contact name and ensure workflow exists
+          const contactName = await getContactName(contactId);
+          const workflowId = await ensureContactWorkflow(
+               contactId,
+               contactName,
+               userId
+          );
+
+          // Parse reminder schedule if provided
+          const reminderScheduleStr = formData.get(
+               "reminderSchedule"
+          ) as string;
+          const reminderSchedule: number[] = reminderScheduleStr
+               ? JSON.parse(reminderScheduleStr)
+               : [];
+
+          // Add the new outreach via workflow Update
+          const outreachResult = await temporalClient.executeAddOutreach(
+               workflowId,
+               {
+                    method: validated.method as OutreachMethod,
+                    dateTime: outreachDateTime.toISOString(),
+                    subject: validated.subject,
+                    messagePreview: validated.messagePreview,
+                    notes: validated.notes,
+                    reminderSchedule,
+               }
+          );
+
+          // Get the created outreach for the response
+          const outreach = await outreachService.getOutreachById(
+               outreachResult.outreachId
+          );
+
+          revalidatePath("/dashboard/contacts");
+          revalidatePath(`/dashboard/contacts/${contactId}`);
+          revalidatePath("/dashboard");
+          return {
+               success: true,
+               outreach: outreach
+                    ? JSON.parse(JSON.stringify(outreach))
+                    : null,
+          };
+     } catch (error: any) {
+          console.error("Error creating unprompted outreach:", error);
+          return {
+               success: false,
+               error: error.message || "Failed to create outreach",
+          };
+     }
+}

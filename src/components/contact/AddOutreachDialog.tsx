@@ -1,6 +1,6 @@
 "use client";
 
-import { createResponseOutreach } from "@/app/actions/contact-actions";
+import { createUnpromptedOutreach } from "@/app/actions/contact-actions";
 import { Button } from "@/components/ui/button";
 import {
      Card,
@@ -16,21 +16,19 @@ import { X } from "lucide-react";
 import { useState, useTransition } from "react";
 import { ReminderScheduleInput } from "./ReminderScheduleInput";
 
-interface ResponseOutreachDialogProps {
+interface AddOutreachDialogProps {
      open: boolean;
      onClose: () => void;
      onSuccess?: (newOutreachId: string) => void;
      contactId: string;
-     originalOutreachId: string;
 }
 
-export function ResponseOutreachDialog({
+export function AddOutreachDialog({
      open,
      onClose,
      onSuccess,
      contactId,
-     originalOutreachId,
-}: ResponseOutreachDialogProps) {
+}: AddOutreachDialogProps) {
      const [isPending, startTransition] = useTransition();
      const [error, setError] = useState<string | null>(null);
      const [reminderSchedule, setReminderSchedule] = useState<number[]>([3]);
@@ -55,9 +53,8 @@ export function ResponseOutreachDialog({
           formData.set("reminderSchedule", JSON.stringify(reminderSchedule));
 
           startTransition(async () => {
-               const result = await createResponseOutreach(
+               const result = await createUnpromptedOutreach(
                     contactId,
-                    originalOutreachId,
                     formData
                );
                if (result.success) {
@@ -68,7 +65,7 @@ export function ResponseOutreachDialog({
                     }
                } else {
                     setError(
-                         result.error || "Failed to create response outreach"
+                         result.error || "Failed to create outreach"
                     );
                }
           });
@@ -94,7 +91,7 @@ export function ResponseOutreachDialog({
                <Card className="relative z-10 w-full max-w-lg max-h-[90vh] overflow-y-auto mx-4">
                     <form onSubmit={handleSubmit}>
                          <CardHeader className="flex flex-row items-center justify-between">
-                              <CardTitle>Record Your Response</CardTitle>
+                              <CardTitle>Send Follow-up</CardTitle>
                               <Button
                                    type="button"
                                    variant="ghost"
@@ -114,8 +111,8 @@ export function ResponseOutreachDialog({
                               )}
 
                               <p className="text-sm text-muted-foreground">
-                                   Record your response to the contact and
-                                   optionally set up new reminders.
+                                   Record a new outreach to this contact and
+                                   optionally set up reminders.
                               </p>
 
                               {/* Method */}
@@ -176,7 +173,7 @@ export function ResponseOutreachDialog({
                                         id="messagePreview"
                                         name="messagePreview"
                                         className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                        placeholder="Brief preview of your response"
+                                        placeholder="Brief preview of your message"
                                    />
                               </div>
 
@@ -187,7 +184,7 @@ export function ResponseOutreachDialog({
                                         id="notes"
                                         name="notes"
                                         className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-                                        placeholder="Any additional notes about this response"
+                                        placeholder="Any additional notes about this outreach"
                                    />
                               </div>
 
@@ -200,8 +197,7 @@ export function ResponseOutreachDialog({
                                    />
                                    <p className="text-xs text-muted-foreground mt-2">
                                         Optional: Set up reminders for
-                                        follow-ups on this response. Leave empty
-                                        if you don't need reminders.
+                                        follow-ups. Leave empty if you don't need reminders.
                                    </p>
                               </div>
                          </CardContent>
@@ -213,10 +209,10 @@ export function ResponseOutreachDialog({
                                    onClick={onClose}
                                    disabled={isPending}
                               >
-                                   Skip
+                                   Cancel
                               </Button>
                               <Button type="submit" disabled={isPending}>
-                                   {isPending ? "Saving..." : "Save Response"}
+                                   {isPending ? "Saving..." : "Save Outreach"}
                               </Button>
                          </CardFooter>
                     </form>
@@ -224,3 +220,4 @@ export function ResponseOutreachDialog({
           </div>
      );
 }
+

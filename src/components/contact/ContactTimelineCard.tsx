@@ -140,7 +140,12 @@ export function ContactTimelineCard({ events }: ContactTimelineCardProps) {
       </CardHeader>
       <CardContent className="space-y-6">
         {sortedDates.map((dateKey) => {
-          const dayEvents = groupedEvents.get(dateKey)!;
+          // Sort events within each day in reverse chronological order (latest first)
+          const dayEvents = groupedEvents.get(dateKey)!.sort((a, b) => {
+            const dateA = new Date(a.occurredAt);
+            const dateB = new Date(b.occurredAt);
+            return dateB.getTime() - dateA.getTime();
+          });
           
           return (
             <div key={dateKey} className="space-y-3">
