@@ -38,7 +38,8 @@ next-env.d.ts
 # drizzle
 /drizzle
 
-# random
+# Personal files
+ecosystem.config.js
 notes.txt
 /scripts
-*.mdx
+Temporal.md

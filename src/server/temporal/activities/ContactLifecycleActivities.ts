@@ -44,7 +44,6 @@ export type {
 export interface SyncReminderScheduleParams {
      contactId: string;
      outreachId: string;
-     outreachDateTime: string;
      outreachMethod: OutreachMethod;
      newSchedule: number[];
 }
@@ -114,31 +113,29 @@ export async function persistOutreachActivity(
      });
 
      // Create follow-up records for each reminder
+     // Reminders are calculated from NOW (when the outreach is created), not from the outreach date
      const followUpIds: string[] = [];
      const now = new Date();
      let cumulativeDays = 0;
 
      for (let i = 0; i < reminderSchedule.length; i++) {
           cumulativeDays += reminderSchedule[i];
-          const scheduledDate = new Date(outreachDateTime);
+          const scheduledDate = new Date(now); // Base from NOW, not outreach date
           scheduledDate.setDate(scheduledDate.getDate() + cumulativeDays);
 
-          // Only create if the date is in the future
-          if (scheduledDate > now) {
-               const followUp = await followUpRepository.create({
-                    outreachId: outreach.id,
-                    contactId,
-                    scheduledDate,
-                    method,
-                    completed: false,
-                    isSalesforceManaged: false,
-                    reminderSent: false,
-                    notes: `Auto-generated reminder (${i + 1}/${
-                         reminderSchedule.length
-                    })`,
-               });
-               followUpIds.push(followUp.id);
-          }
+          const followUp = await followUpRepository.create({
+               outreachId: outreach.id,
+               contactId,
+               scheduledDate,
+               method,
+               completed: false,
+               isSalesforceManaged: false,
+               reminderSent: false,
+               notes: `Auto-generated reminder (${i + 1}/${
+                    reminderSchedule.length
+               })`,
+          });
+          followUpIds.push(followUp.id);
      }
 
      // Create OUTREACH_CREATED event
@@ -235,42 +232,37 @@ export async function syncReminderScheduleActivity(
      const {
           contactId,
           outreachId,
-          outreachDateTime,
           outreachMethod,
           newSchedule,
      } = params;
-
-     const outreachDate = toDate(outreachDateTime);
 
      // Delete existing incomplete auto-generated follow-ups
      await followUpRepository.deleteByOutreachId(outreachId, true);
 
      // Create new follow-up records
+     // Reminders are calculated from NOW (when the schedule is updated), not from the outreach date
      const followUpIds: string[] = [];
      const now = new Date();
      let cumulativeDays = 0;
 
      for (let i = 0; i < newSchedule.length; i++) {
           cumulativeDays += newSchedule[i];
-          const scheduledDate = new Date(outreachDate);
+          const scheduledDate = new Date(now); // Base from NOW
           scheduledDate.setDate(scheduledDate.getDate() + cumulativeDays);
 
-          // Only create if the date is in the future
-          if (scheduledDate > now) {
-               const followUp = await followUpRepository.create({
-                    outreachId,
-                    contactId,
-                    scheduledDate,
-                    method: outreachMethod,
-                    completed: false,
-                    isSalesforceManaged: false,
-                    reminderSent: false,
-                    notes: `Auto-generated reminder (${i + 1}/${
-                         newSchedule.length
-                    })`,
-               });
-               followUpIds.push(followUp.id);
-          }
+          const followUp = await followUpRepository.create({
+               outreachId,
+               contactId,
+               scheduledDate,
+               method: outreachMethod,
+               completed: false,
+               isSalesforceManaged: false,
+               reminderSent: false,
+               notes: `Auto-generated reminder (${i + 1}/${
+                    newSchedule.length
+               })`,
+          });
+          followUpIds.push(followUp.id);
      }
 
      console.log(

@@ -1,4 +1,5 @@
 import { ContactTimelineCard } from "@/components/contact/ContactTimelineCard";
+import { DeleteContactButton } from "@/components/contact/DeleteContactButton";
 import { FollowUpList } from "@/components/contact/FollowUpList";
 import { OutreachHistoryCard } from "@/components/contact/OutreachHistoryCard";
 import { ReminderScheduleCard } from "@/components/contact/ReminderScheduleCard";
@@ -97,6 +98,10 @@ export default async function ContactDetailPage({
                               />
                          </div>
                     </div>
+                    <DeleteContactButton
+                         contactId={contact.id}
+                         contactName={`${contact.firstName}${contact.lastName ? ` ${contact.lastName}` : ""}`}
+                    />
                </div>
 
                {/* Top row: Actions and Contact Info */}

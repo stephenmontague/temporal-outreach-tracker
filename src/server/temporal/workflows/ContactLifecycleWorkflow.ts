@@ -108,7 +108,7 @@ function calculateNextReminder(
 }
 
 function calculateNextReminderTime(
-     outreachDateTime: string,
+     reminderBaseTime: string, // When the reminder schedule was created (NOW at creation time)
      reminderSchedule: number[],
      currentReminderIndex: number
 ): string | undefined {
@@ -116,13 +116,13 @@ function calculateNextReminderTime(
           return undefined;
      }
 
-     const outreachDate = new Date(outreachDateTime);
+     const baseDate = new Date(reminderBaseTime);
      let cumulativeDays = 0;
      for (let i = 0; i <= currentReminderIndex; i++) {
           cumulativeDays += reminderSchedule[i];
      }
 
-     const reminderDate = new Date(outreachDate);
+     const reminderDate = new Date(baseDate);
      reminderDate.setDate(reminderDate.getDate() + cumulativeDays);
      return reminderDate.toISOString();
 }
@@ -209,17 +209,21 @@ export async function ContactLifecycleWorkflow(
           });
 
           // Add to workflow state
+          // Use current time as the base for reminder calculations (reminders are relative to NOW, not outreach date)
+          const reminderBaseTime = new Date().toISOString();
+          const nextReminderAt = calculateNextReminderTime(
+               reminderBaseTime,
+               reminderSchedule,
+               0
+          );
           const outreachState: OutreachState = {
                id: result.outreachId,
                method,
                dateTime,
                reminderSchedule,
                currentReminderIndex: 0,
-               nextReminderAt: calculateNextReminderTime(
-                    dateTime,
-                    reminderSchedule,
-                    0
-               ),
+               reminderBaseTime,
+               nextReminderAt,
                responded: false,
                cancelled: false,
           };
@@ -247,16 +251,16 @@ export async function ContactLifecycleWorkflow(
                const result = await syncReminderScheduleActivity({
                     contactId,
                     outreachId,
-                    outreachDateTime: outreach.dateTime,
                     outreachMethod: outreach.method,
                     newSchedule,
                });
 
-               // Update workflow state
+               // Update workflow state - reset base time to NOW when schedule is updated
                outreach.reminderSchedule = newSchedule;
                outreach.currentReminderIndex = 0;
+               outreach.reminderBaseTime = new Date().toISOString();
                outreach.nextReminderAt = calculateNextReminderTime(
-                    outreach.dateTime,
+                    outreach.reminderBaseTime,
                     newSchedule,
                     0
                );
@@ -285,7 +289,7 @@ export async function ContactLifecycleWorkflow(
                if (outreach) {
                     outreach.currentReminderIndex++;
                     outreach.nextReminderAt = calculateNextReminderTime(
-                         outreach.dateTime,
+                         outreach.reminderBaseTime,
                          outreach.reminderSchedule,
                          outreach.currentReminderIndex
                     );
@@ -399,21 +403,26 @@ export async function ContactLifecycleWorkflow(
      while (state.isActive) {
           // Calculate next wake time
           const nextReminder = calculateNextReminder(state.outreaches);
-          const sleepMs = nextReminder
-               ? Math.max(0, nextReminder.time - Date.now())
+          const now = Date.now();
+          const rawSleepMs = nextReminder
+               ? Math.max(0, nextReminder.time - now)
                : undefined;
+          // Ensure minimum sleep time to prevent tight loops if reminder time is in the past
+          const sleepMs =
+               rawSleepMs !== undefined ? Math.max(1000, rawSleepMs) : undefined;
 
           // Reset update flag
           hasUpdate = false;
 
           // Sleep until next reminder OR update received
-          const timedOut = await wf.condition(
+          // wf.condition returns true if condition was satisfied, false if timeout elapsed
+          const conditionMet = await wf.condition(
                () => hasUpdate || !state.isActive,
                sleepMs
           );
 
-          // If we woke up due to timeout (not signal/update), fire the reminder
-          if (!timedOut && nextReminder && state.isActive) {
+          // If we woke up due to timeout (timer fired, not signal/update), fire the reminder
+          if (!conditionMet && nextReminder && state.isActive) {
                const outreach = state.outreaches[nextReminder.outreachId];
                if (outreach && !outreach.responded && !outreach.cancelled) {
                     // Find the follow-up ID for this reminder
@@ -430,7 +439,7 @@ export async function ContactLifecycleWorkflow(
                     // Advance to next reminder
                     outreach.currentReminderIndex++;
                     outreach.nextReminderAt = calculateNextReminderTime(
-                         outreach.dateTime,
+                         outreach.reminderBaseTime,
                          outreach.reminderSchedule,
                          outreach.currentReminderIndex
                     );

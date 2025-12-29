@@ -20,6 +20,7 @@ export interface OutreachState {
      dateTime: string;
      reminderSchedule: number[];
      currentReminderIndex: number;
+     reminderBaseTime: string; // When the reminder schedule was created (used as base for calculating reminder times)
      nextReminderAt?: string;
      responded: boolean;
      cancelled: boolean;
